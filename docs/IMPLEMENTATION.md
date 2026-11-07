@@ -14,7 +14,7 @@ Key crates that implement this specification:
 | `transferd-core` | Adaptive multi-path scheduling used by the application layer |
 | `transferd-api` | gRPC control plane used by TransferDaemon (not part of the wire protocol) |
 
-The wire protocol defined in this repository is independent of the gRPC control plane and of any particular user interface.
+The wire protocol defined in this repository is independent of the gRPC control plane and of any particular user interface. The crate names above describe one codebase's internal layout. They are informative and may change; the specification is what matters for interoperability.
 
 ## Building a Conforming Node
 
@@ -45,4 +45,4 @@ Implementers are encouraged to test against TransferDaemon’s overlay crates.
 
 ## Protocol Evolution
 
-All changes to frame formats, key derivation labels, or version ranges must be reflected in this repository first. The TransferDaemon maintainers treat the documents here as the source of truth for the wire protocol.
+All changes to frame formats, key derivation labels, or version ranges are made in this repository first, then implemented. The documents here are the source of truth for the wire protocol. If an implementation behaves differently from them, the difference is a bug in one or the other, and should be reported as an issue in this repository.
