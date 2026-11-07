@@ -139,7 +139,8 @@ frame := magic "TDOV" | version u8 | kind u8 | flags u16 LE | seq u64 LE | len u
 - The receiver MUST deliver in order. It MAY buffer out-of-order frames, up to 256.
 - It acknowledges cumulatively and re-acknowledges duplicates, so a lost ACK is repaired by the resend it causes.
 - Unacknowledged data MUST be resent after the route's retransmission timeout (RTO), on another live route if there is one. This is what makes a route failure invisible to the application's stream.
-  - *Open point:* the reference implementation's per-route RTO starts at 400 ms and adapts (see [OVERLAY.md](OVERLAY.md)); a fixed 400 ms resend trigger also appears in the reference code. The intended rule is to be confirmed and this line tightened to match it.
+  - A sender SHOULD also resend a frame before its timeout when three acknowledgements in a row repeat the same cumulative point, or when a selective acknowledgement reports a gap ahead of it. Both are loss signals.
+  - The RTO is kept per route and adapts to measured round trips, as in RFC 6298. [OVERLAY.md](OVERLAY.md) gives the reference values. A fixed resend interval is not part of this specification.
 - DATA for a stream the receiver does not have MUST NOT be acknowledged.
 
 **Flow control.** Every stream starts with a window of 256 KiB in each direction. The receiver grants more with WINDOW as the application reads. A sender with no credit MUST wait. It MUST NOT drop data.

@@ -56,7 +56,7 @@ Start with `PROTOCOL.md` if you are implementing the wire format. Start with `OV
 
 | Implementation | Status | Notes |
 |----------------|--------|-------|
-| [TransferDaemon](https://github.com/LoopyLuci/TransferDaemon) | Reference implementation | Speaks protocol versions 1–3. Includes the `relayd` blind relay. |
+| [TransferDaemon](https://github.com/LoopyLuci/TransferDaemon) 2.3.0 | Reference implementation | Speaks protocol versions 1–3. Includes the `relayd` blind relay. Its interoperability tests are listed in [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md). |
 
 If you build an implementation, please tell us, and we will list it here. Interoperability tests against the reference implementation are described in [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
 
