@@ -1,83 +1,82 @@
 # Transferd Protocol
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Protocol Version](https://img.shields.io/badge/protocol-v3-blue)](docs/PROTOCOL.md)
+[![Protocol Version](https://img.shields.io/badge/protocol-v1--v3-blue)](docs/PROTOCOL.md)
 [![Reference Implementation](https://img.shields.io/badge/reference-TransferDaemon-orange)](https://github.com/LoopyLuci/TransferDaemon)
 
-**Transferd** is a universal, zero-knowledge, post-quantum secure data transfer and messaging protocol. It unifies arbitrary underlying transports (direct TCP, blind relays, DMI/Thunderbolt, Wi-Fi Direct, Bluetooth, and more) into a single, consistent, end-to-end encrypted abstraction.
+**Transferd** is a protocol for end-to-end encrypted, post-quantum secure data transfer between paired nodes. Nodes can reach each other directly, through blind relays, or both at once, and applications see reliable, ordered, flow-controlled streams.
 
-Transferd is the **protocol**.  
-[TransferDaemon](https://github.com/LoopyLuci/TransferDaemon) is the production-grade **application** and reference implementation that speaks Transferd.
+This repository is the **specification**. It contains no application code. Anyone can read it, implement it, or run a relay that speaks it.
 
-This repository contains the canonical protocol specification, wire formats, security model, and architectural documentation. It is intentionally independent of any particular application so that other implementers can build compatible clients, relays, or specialized nodes.
-
----
-
-## What Transferd Provides
-
-- **Universal transport abstraction** — Applications see one reliable, ordered, flow-controlled stream interface. The protocol automatically selects, stripes, and fails over across available lanes.
-- **Zero-knowledge relays** — Blind relays forward only random tokens and padded ciphertext. They never learn identities, endpoints, or plaintext.
-- **Post-quantum security** — Hybrid identity (Ed25519 + ML-DSA-87) and hybrid key exchange (X25519 + ML-KEM-768).
-- **Authenticated hybrid handshake** on every link.
-- **Multiplexed streams** with cumulative ACKs, SACK ranges, per-stream windows, and per-route congestion control.
-- **Hole punching** (protocol version 3+) for direct UDP paths behind cone NATs.
-- **Invites and mutual pairing** with one-time nonces.
-- **Crypto-agility** — new ciphersuites and frame kinds are additive; older peers ignore what they do not understand.
-- **No central servers required**. Any number of self-hosted relays can be used.
-
-See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the complete wire specification and [docs/OVERLAY.md](docs/OVERLAY.md) for the overlay semantics.
+[TransferDaemon](https://github.com/LoopyLuci/TransferDaemon) is the production application and reference implementation. It is a separate project with its own installers, user interfaces and release process.
 
 ---
 
-## Relationship to TransferDaemon
+## What the protocol provides
 
-| Aspect | Transferd (this repo) | TransferDaemon |
-|--------|-----------------------|----------------|
-| Purpose | Protocol specification & wire formats | Full messaging + file-transfer application |
-| Contents | Specs, security model, compatibility rules | Daemon, GUI, TUI, CLI, mobile shells, installers |
-| Audience | Protocol implementers, security reviewers, alternative clients | End users and application developers |
-| Canonical source | Wire protocol, handshake, frame formats, versioning rules | Reference implementation of those specs |
-
-TransferDaemon’s crates (`transferd-crypto`, `transferd-overlay`, `relayd`, etc.) implement this protocol. Changes to the wire format or security properties should be reflected first in this repository, then in the application.
-
----
-
-## Documentation Map
-
-| Document | Description |
-|----------|-------------|
-| [docs/PROTOCOL.md](docs/PROTOCOL.md) | Complete wire protocol: handshake, tunnel, frames, sessions, hole punching, compatibility |
-| [docs/OVERLAY.md](docs/OVERLAY.md) | Overlay semantics: pairing, services, routes, mesh DNS, congestion control |
-| [docs/CRYPTO.md](docs/CRYPTO.md) | Cryptographic primitives, key derivation, and security arguments |
-| [docs/RELAY.md](docs/RELAY.md) | Blind relay protocol and registration |
-| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Mapping to TransferDaemon crates and guidance for other implementers |
+- **Authenticated, hybrid key exchange on every link.** Identity is Ed25519 + ML-DSA-87. Key exchange is X25519 + ML-KEM-768. Breaking a session requires breaking both the classical and the post-quantum parts.
+- **Encrypted tunnels with replay protection.** Directional AES-256-GCM keys, counter nonces, and a 4096-wide replay window.
+- **Multiplexed streams.** Per-stream flow control, cumulative and selective acknowledgements, and resending on another route if one fails.
+- **Multiple routes per peer.** A session can use direct TCP, relayed datagrams, and a hole-punched UDP path at the same time. Routes are probed, and the session fails over between them.
+- **Blind relays.** A relay forwards random 32-byte tokens and size-padded ciphertext. It does not learn identities or plaintext.
+- **Hole punching** (protocol version 3 and later) for direct UDP paths through cone NATs.
+- **Pairing by signed invite**, with one-time nonces and trust on first use.
+- **Compatibility by design.** Protocol versions are negotiated at connection time. Unknown frame kinds and trailing fields are ignored, so newer builds do not break older ones.
+- **No central servers.** Every relay and resolver is configuration. Any conforming relay can be self-hosted.
 
 ---
 
-## Security Model (Summary)
+## Read the specification
 
-- **Identity**: long-term hybrid signing key (Ed25519 + ML-DSA-87). Node ID = hex of the Ed25519 public key.
-- **Link security**: authenticated hybrid handshake → directional AES-256-GCM keys with counter nonces and a 4096-wide replay window.
-- **Metadata protection**: relays see only tokens and size-padded ciphertext. Optional constant-rate padding is available in implementations.
-- **Forward secrecy**: ephemeral keys per session/handshake.
-- **Compatibility**: protocol versions are negotiated; unknown frame kinds and trailing fields are ignored.
+| Document | What it covers |
+|----------|----------------|
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | **The wire specification.** Handshake, tunnel, relay encapsulation, frames, sessions, invites, versioning, hole punching. |
+| [docs/OVERLAY.md](docs/OVERLAY.md) | **Overlay semantics.** Pairing, services and access control, path selection, streams and congestion control, mesh DNS. |
+| [docs/CRYPTO.md](docs/CRYPTO.md) | Cryptographic constructions, key derivation labels, and informal security arguments. |
+| [docs/RELAY.md](docs/RELAY.md) | The blind relay: token registration, forwarding, and `Locate`. |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | How to build a conforming node, which requirements are mandatory, and how to test interoperability. |
 
-Full details are in the protocol documents.
+Start with `PROTOCOL.md` if you are implementing the wire format. Start with `OVERLAY.md` if you want to know what the network does.
 
 ---
 
-## Status
+## Layers
 
-This is the extracted and canonicalized protocol documentation from the TransferDaemon project. The wire formats and versioning rules described here match the current TransferDaemon implementation (protocol versions 1–3).
+```
+ application stream bytes
+ ── overlay ────────────  pairing, services, routes, streams, mesh DNS
+ ── frames ─────────────  session: hello, streams, pings, receipts
+ ── tunnel ─────────────  per link: AES-256-GCM, counter, replay window
+ ── link ───────────────  TCP, relay datagrams, or any LinkTransport
+```
+
+---
+
+## Implementations
+
+| Implementation | Status | Notes |
+|----------------|--------|-------|
+| [TransferDaemon](https://github.com/LoopyLuci/TransferDaemon) 2.3.0 | Reference implementation | Speaks protocol versions 1–3. Includes the `relayd` blind relay. Its interoperability tests are listed in [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md). |
+
+If you build an implementation, please tell us, and we will list it here. Interoperability tests against the reference implementation are described in [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
+
+---
+
+## Versioning and change process
+
+- The current protocol version is **3**. The lowest version still supported is **1**. The versions a build speaks are described in [PROTOCOL.md §7](docs/PROTOCOL.md#7-compatibility-and-evolution).
+- **This repository is the source of truth for wire behavior.** A change to frame formats, key derivation labels, or version ranges is made here first, and is then implemented.
+- If this specification and an implementation disagree, one of them has a bug. Open an issue here so the disagreement can be settled and the specification corrected if needed.
+- New ciphersuites and frame kinds are additive. An existing algorithm or identifier is never changed.
+
+---
+
+## Contributing
+
+Propose protocol changes (new frame kinds, ciphersuites, version bumps, or clarifications) by opening an issue or pull request in this repository, before writing implementation code. Changes that alter wire behavior need a version or a new identifier, and need a note in the relevant document about how older builds behave.
 
 ---
 
 ## License
 
 MIT License. See [LICENSE](LICENSE).
-
----
-
-## Contributing
-
-Protocol changes (new frame kinds, ciphersuites, version bumps) should be proposed here first so that all implementations can stay interoperable. The reference implementation lives in [TransferDaemon](https://github.com/LoopyLuci/TransferDaemon).
