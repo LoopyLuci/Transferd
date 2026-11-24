@@ -1,0 +1,43 @@
+[package]
+name = "transferd-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+tpm-backend = []
+secure-enclave-backend = []
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+ring-channel = { path = "../ring-channel" }
+aes-gcm = { version = "0.10", features = ["aes", "zeroize"] }
+rand = "0.8"
+zeroize = "1"
+thiserror = { workspace = true }
+ml-kem = { version = "0.3.2", features = ["zeroize"] }
+kem = "0.3"
+ml-dsa = { version = "0.1.0-rc.11", features = ["zeroize"] }
+x25519-dalek = { version = "2.0.1", features = ["static_secrets", "zeroize"] }
+ed25519-dalek = { version = "2", features = ["zeroize"] }
+signature = "2"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+# ghost keys (src/ghostkey.rs): RFC 9474 blind RSA signatures
+rsa = { version = "0.9", features = ["hazmat", "sha2"] }
+sha2 = "0.10"
+num-bigint-dig = { version = "0.8", features = ["rand"] }
+num-traits = "0.2"
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "encryption"
+harness = false
+

@@ -1,0 +1,37 @@
+# TransferDaemon relay — Cloudflare Worker (free tier, zero servers).
+# The relay runs entirely on Cloudflare's edge as a Durable Object; no VPS,
+# no container, no persistent infrastructure of your own.
+#
+#   npm i -D wrangler
+#   npx wrangler deploy
+#
+# The free tier includes enough Durable Object requests for a personal/small
+# relay. PoW enforcement is intentionally skipped (see worker.js): Cloudflare's
+# edge rate-limits + the per-IP bucket are the abuse barrier on the free tier.
+# Point clients at it with the Worker's public hostname, e.g.:
+#   TRANSFERD_RELAY_ADDR=<your-subdomain>.workers.dev:443  (WS relay client)
+
+name = "transferd-relay"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Node transfer limits. 0 = unlimited. Set these so the free-tier relay never
+# carries a blob or per-token bandwidth beyond what you want to pay for:
+#   MAX_BLOB_BYTES     hard cap on one forwarded ciphertext blob
+#   MAX_MB_PER_DAY     per-token daily bandwidth budget (MiB)
+#   MAX_MB_PER_WEEK    per-token weekly bandwidth budget (MiB)
+#   MAX_MB_PER_MONTH   per-token monthly bandwidth budget (MiB)
+[vars]
+MAX_BLOB_BYTES = "0"
+MAX_MB_PER_DAY = "0"
+MAX_MB_PER_WEEK = "0"
+MAX_MB_PER_MONTH = "0"
+
+[durable_objects]
+bindings = [
+  { name = "TRANSFERD_RELAY", class_name = "TRANSFERD_RELAY" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TRANSFERD_RELAY"]

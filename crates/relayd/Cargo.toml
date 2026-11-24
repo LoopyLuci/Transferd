@@ -1,0 +1,41 @@
+[package]
+name = "relayd"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "relayd"
+path = "src/main.rs"
+
+[[bin]]
+name = "relayd-ws"
+path = "src/bin/relayd-ws.rs"
+
+[lib]
+name = "relayd"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+socket2 = "0.6"
+tokio    = { workspace = true }
+serde    = { workspace = true }
+bincode  = { workspace = true }
+blake3   = { workspace = true }
+rand     = "0.8"
+thiserror = { workspace = true }
+# ghost keys: relays that admit only vouched-for identities (src/ghost.rs)
+transferd-crypto = { path = "../transferd-crypto" }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio    = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "protocol"
+harness = false

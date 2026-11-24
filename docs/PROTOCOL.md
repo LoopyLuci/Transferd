@@ -118,13 +118,18 @@ frame := magic "TDOV" | version u8 | kind u8 | flags u16 LE | seq u64 LE | len u
 
 **Hello.**
 - Each side MUST send HELLO first, with the version range it speaks and the services it exposes.
+- HELLO carries a random `nonce`. HELLO_ACK echoes it, so the initiator knows the answer is not a replay.
 - On a peer's HELLO, a node MUST check the claimed `node_id` against the identity the handshake proved, and answer with HELLO_ACK. The answer carries the highest version present in both ranges, or 0 and a `reason` when there is none.
 - A session MUST NOT carry streams until the agreed version is known to both sides.
 - A node MUST send HELLO again whenever the services it exposes change. The peer replaces its list.
 
 **`ext` (HELLO and HELLO_ACK).**
 - A bincode `HelloExt` with optional fields only. An empty or unreadable `ext` MUST be treated as an empty extension.
-- Defined fields: `pairing`, the nonce of an invite the sender accepted from the receiver. The inviting node uses it once to learn that the pairing is mutual.
+- Defined fields:
+  - `pairing`, the nonce of an invite the sender accepted from the receiver. The inviting node uses it once to learn that the pairing is mutual.
+  - `direct`, the addresses the sender can be dialled on directly. It is sent on every HELLO, so a peer that paired by issuing an invite learns them, and keeps them current when they change.
+
+**Starting numbers.** A session's frame `seq` numbers start at a random point, as TCP picks its initial sequence number. Stream ids start from a random point too (31 bits, counted up in the node's half). A restarted peer therefore never reuses a number the other end still remembers from the process it replaced. Control frames are told apart by their `seq`, so a reused one would be taken for a resend.
 
 **Control frames are reliable.**
 - Frames marked "receipt" above MUST be kept by the sender until a CTRL_ACK with their frame `seq` comes back. They are resent every 300 ms.
@@ -154,12 +159,17 @@ frame := magic "TDOV" | version u8 | kind u8 | flags u16 LE | seq u64 LE | len u
 ## 6. Invites
 
 ```
-invite := "tdov1:" base64url(JSON {version: 1, node_id, name, hybrid_public_key, relays, direct, expires_at, nonce, signature})
+invite := "tdov2:" base64url(JSON {version: 2, node_id, name, key_fingerprint, relays, direct, expires_at, nonce, signature})
 ```
 
-- The signature (Ed25519 + ML-DSA-87) covers a BLAKE3 hash of every other field, under the context `"TransferDaemon-overlay-invite-v1"`.
-- An invite's lifetime MUST be between 30 s and 24 h.
-- Its `nonce` is the one-time pairing secret described in §5.
+- `node_id` is the inviting node's id (§1). `key_fingerprint` is 64 hex characters: BLAKE3 under the context `"TransferDaemon-overlay-key-fingerprint-v1"`, over the inviting node's 2624-byte hybrid public key. The key itself is not in the invite, which keeps the invite short.
+- `nonce` is 32 hex characters. `signature` is 128 hex characters.
+- The signature is Ed25519 by the key of `node_id`, checked with strict verification. It covers a BLAKE3 digest of every other field, under the context `"TransferDaemon-overlay-invite-v2"`. Each variable-length field is length-prefixed in the digest.
+- An invite's lifetime MUST be between 30 s and 24 h. Its `nonce` is the one-time pairing secret described in §5.
+- An invite is a few hundred bytes, short enough for a QR code. A node MUST refuse an invite larger than 4 KB.
+- **First contact.** A node dialled from an invite MUST present a hybrid public key that hashes to `key_fingerprint`. The check is made on the direct path and on the relay path, in both directions, before any link is attached. A key that does not match closes the link, and the dialer moves on to the next route. On a relay, a flight that does not match gets no answer, so the dialer's handshake times out.
+- **Trust.** The Ed25519 signature is classical, so an invite is only as trustworthy as the channel it arrives on. The fingerprint binds the post-quantum key: a dialled node MUST present the key the invite fingerprinted.
+- An invite of version 1 (`tdov1:`) MUST be refused.
 
 ## 7. Compatibility and evolution
 

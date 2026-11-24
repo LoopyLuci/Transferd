@@ -1,0 +1,44 @@
+# Rust build output
+/target/
+**/*.rs.bk
+*.pdb
+
+# cargo-fuzz corpus, crashes and build output
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
+
+# Editors and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Secrets and key material
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Wrangler (Cloudflare Worker) local state
+.wrangler/
+deploy/cloudflare-worker/node_modules/
+deploy/cloudflare-worker/package-lock.json
+
+# Claude Code session memory
+.claude/
+
+# Python and TypeScript build and test output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+node_modules/
+dist/

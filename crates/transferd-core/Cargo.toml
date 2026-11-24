@@ -1,0 +1,38 @@
+[package]
+name = "transferd-core"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+socket2 = "0.6"
+bytes = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+ring-channel = { path = "../ring-channel" }
+transferd-crypto = { path = "../transferd-crypto" }
+hex = "0.4"
+relayd = { path = "../relayd" }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+arti-client = { version = "0.22", optional = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "transport"
+harness = false
+
+[features]
+default = []
+tor-transport = ["arti-client"]
+

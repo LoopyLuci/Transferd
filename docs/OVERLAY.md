@@ -12,9 +12,10 @@ This document describes the overlay's semantics. The bytes are in [PROTOCOL.md](
 
 ## Pairing
 
-- An invite is signed, carries the node's identity and how to reach it, and expires.
+- An invite is signed by the node it names, carries that node's id, the fingerprint of its key and how to reach it, and expires. It is a few hundred bytes, so it fits a QR code. See [PROTOCOL.md](PROTOCOL.md) §6.
 - Accepting an invite pairs both nodes. The accepting node presents the invite's one-time nonce in its first hello, and the inviting node then knows the pairing is mutual.
 - A node MUST be paired only through an invite. Merely opening a session does not count as pairing.
+- **First contact.** A node dialled from an invite MUST present the hybrid public key the invite fingerprinted. The check runs before any link is attached, so a node that does not match is never reached.
 - **Trust on first use.** A node that later presents a different key for an id it already knows MUST be refused.
 
 ## Services and access
