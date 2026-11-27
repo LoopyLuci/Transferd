@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QLabel
 
@@ -32,7 +32,7 @@ from transferd_gui.ui.status import relay_status
 from transferd_gui.ui.widgets import Banner, CopyField, TableWithEmpty
 
 EXPECTED_KEYS = [page_class.key for _, page_classes in NAVIGATION for page_class in page_classes]
-EXPECTED_SECTIONS = ["OVERVIEW", "NETWORK", "TRANSFER", "TOOLS", "SYSTEM"]
+EXPECTED_SECTIONS = ["OVERVIEW", "NETWORK", "TRANSFER", "TOOLS", "DEBUG", "SYSTEM"]
 
 
 def build_window(qapp, folder: Path, **changes):
@@ -44,6 +44,14 @@ def build_window(qapp, folder: Path, **changes):
     service = TransferdService(settings_path, defaults, on_snapshot=bridge.snapshot_callback, on_log=bridge.log_callback)
     window = MainWindow(service, bridge, store)
     return window, service
+
+
+def dispose(qapp, win) -> None:
+    """Close a window and destroy it now. A theme change re-polishes every window that still exists, so windows left
+    alive make each later test slower than the one before it."""
+    win.close()
+    win.deleteLater()
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def pump(qapp, predicate, timeout: float = 20.0) -> bool:
@@ -67,8 +75,7 @@ def empty_snapshot(folder: Path):
 def window(qapp, tmp_path):
     win, _service = build_window(qapp, tmp_path)
     yield win
-    win.close()
-    win.deleteLater()
+    dispose(qapp, win)
 
 
 # ----- navigation and layout --------------------------------------------------------------------
@@ -98,13 +105,13 @@ def test_selecting_a_sidebar_entry_shows_that_screen(window):
         assert window.stack.currentWidget() is window.page(key)
 
 
-def test_the_eleven_screens_have_titles_that_match_the_sidebar(window):
+def test_every_screen_has_a_title_that_matches_the_sidebar(window):
     for row in range(window.nav.count()):
         item = window.nav.item(row)
         key = item.data(Qt.ItemDataRole.UserRole)
         if key is not None:
             assert item.text() == window.page(key).title
-    assert len(EXPECTED_KEYS) == 11
+    assert len(EXPECTED_KEYS) == 13
 
 
 # ----- empty state of every screen --------------------------------------------------------------
@@ -370,5 +377,5 @@ def test_every_screen_shows_real_data_once_a_peer_is_connected(qapp, tmp_path):
         assert settings_page.data_dir.text() == service.settings.data_dir
         assert len(settings_page.findChildren(Banner)) == 3
     finally:
-        window.close()
+        dispose(qapp, window)
         peer.stop()

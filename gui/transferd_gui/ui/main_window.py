@@ -31,6 +31,7 @@ from transferd_gui.ui import theme
 from transferd_gui.ui.bridge import Bridge
 from transferd_gui.ui.pages.base import Context, Page
 from transferd_gui.ui.pages.dashboard import DashboardPage
+from transferd_gui.ui.pages.debug import DebugPage
 from transferd_gui.ui.pages.dns import DnsPage
 from transferd_gui.ui.pages.events import EventsPage
 from transferd_gui.ui.pages.ghost import GhostPage
@@ -41,6 +42,7 @@ from transferd_gui.ui.pages.punch import PunchPage
 from transferd_gui.ui.pages.relay import RelayPage
 from transferd_gui.ui.pages.settings import SettingsPage
 from transferd_gui.ui.pages.transfer import TransferPage
+from transferd_gui.ui.pages.wormhole import WormholePage
 from transferd_gui.ui.status import relay_status
 from transferd_gui.ui.widgets import Notice, Pill
 
@@ -48,8 +50,9 @@ from transferd_gui.ui.widgets import Notice, Pill
 NAVIGATION: Sequence[tuple] = (
     ("Overview", (DashboardPage,)),
     ("Network", (IdentityPage, RelayPage, PeersPage, InvitesPage)),
-    ("Transfer", (TransferPage, PunchPage)),
+    ("Transfer", (TransferPage, WormholePage, PunchPage)),
     ("Tools", (DnsPage, GhostPage)),
+    ("Debug", (DebugPage,)),
     ("System", (EventsPage, SettingsPage)),
 )
 #: Ghost key files are read about every this many snapshots (about every five seconds).

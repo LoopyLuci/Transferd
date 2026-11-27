@@ -2085,6 +2085,43 @@ mod tests {
         )
     }
 
+    /// The same link, with a switch: while `cut` is set, nothing written reaches the other end and nothing arrives
+    /// from it. That is what an unresponsive peer looks like from here: its acknowledgements never come.
+    fn switchable_link_pair(
+        id: u32,
+        cut: Arc<std::sync::atomic::AtomicBool>,
+    ) -> (Arc<PipeLink>, Arc<PipeLink>) {
+        let a_to_b: Queue = Default::default();
+        let b_to_a: Queue = Default::default();
+        let end = |out: Queue, inbox: Queue, cut: Arc<std::sync::atomic::AtomicBool>| {
+            let cut_write = cut.clone();
+            Pipe {
+                write: Box::new(move |bytes| {
+                    if !cut_write.load(Ordering::Relaxed) {
+                        out.lock().push_back(bytes);
+                    }
+                    Ok(())
+                }),
+                incoming: Box::new(move || {
+                    if cut.load(Ordering::Relaxed) {
+                        return Ok(None);
+                    }
+                    Ok(inbox.lock().pop_front())
+                }),
+                close: Box::new(|| {}),
+            }
+        };
+        (
+            PipeLink::new(
+                id,
+                RouteKind::Direct,
+                "pipe",
+                end(a_to_b.clone(), b_to_a.clone(), cut.clone()),
+            ),
+            PipeLink::new(id, RouteKind::Direct, "pipe", end(b_to_a, a_to_b, cut)),
+        )
+    }
+
     fn setup(me: &NodeIdentity, peer: &NodeIdentity) -> SessionSetup {
         SessionSetup {
             peer_node_id: peer.node_id().to_string(),
@@ -2249,10 +2286,23 @@ mod tests {
         StreamId,
         mpsc::UnboundedReceiver<SessionEvent>,
     ) {
+        let (route, phone_end) = link_pair(3);
+        open_stream_pair_over(route, phone_end).await
+    }
+
+    /// The same pair, over the link ends given.
+    async fn open_stream_pair_over(
+        route: Arc<PipeLink>,
+        phone_end: Arc<PipeLink>,
+    ) -> (
+        SessionHandle,
+        SessionHandle,
+        StreamId,
+        mpsc::UnboundedReceiver<SessionEvent>,
+    ) {
         let desk_id = NodeIdentity::generate("desktop");
         let phone_id = NodeIdentity::generate("phone");
         let (desk_events_tx, mut desk_events) = mpsc::unbounded_channel();
-        let (route, phone_end) = link_pair(3);
         let desk = spawn(
             setup(&desk_id, &phone_id),
             vec![route as Arc<dyn Link>],
@@ -2407,6 +2457,54 @@ mod tests {
         let (desk, _phone, stream, _events) = open_stream_pair().await;
         desk.close_now(stream, "reset", "gave up").await;
         assert!(desk.recv(stream).await.is_err());
+    }
+
+    /// A close that cannot be flushed because the peer stopped answering gives up after `FLUSH_TIMEOUT`, and ends
+    /// the stream with a reset. The peer's reader must see that error once it is reachable again. A clean end here
+    /// would tell it the stream was complete when the bytes behind it were never acknowledged.
+    #[tokio::test]
+    async fn a_close_against_an_unresponsive_peer_resets_the_stream_instead_of_ending_it() {
+        let cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (route, phone_end) = switchable_link_pair(3, cut.clone());
+        let (desk, phone, stream, _events) = open_stream_pair_over(route, phone_end).await;
+
+        // The peer stops answering, and the desktop writes: nothing it sends can be acknowledged.
+        cut.store(true, Ordering::Relaxed);
+        desk.send(stream, b"never acknowledged".to_vec(), false)
+            .await
+            .expect("the write is queued");
+
+        // The close waits for the flush, which cannot finish while the peer is silent. It must give up on its own,
+        // after FLUSH_TIMEOUT, and not hang.
+        let started = tokio::time::Instant::now();
+        desk.close(stream).await;
+        let waited = started.elapsed();
+        assert!(
+            waited >= FLUSH_TIMEOUT,
+            "the close returned after {waited:?}, before the flush could have timed out"
+        );
+        assert!(
+            waited < FLUSH_TIMEOUT + Duration::from_secs(5),
+            "the close took {waited:?}: it did not give up after FLUSH_TIMEOUT"
+        );
+
+        // The peer is reachable again. The reset is a control frame, so it is resent until the peer acknowledges it.
+        cut.store(false, Ordering::Relaxed);
+        let end = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                match phone.recv(stream).await {
+                    // Bytes that made it through before the reset are read first.
+                    Ok(Some(_)) => {}
+                    other => return other.map(|_| ()),
+                }
+            }
+        })
+        .await
+        .expect("the peer's reader gets an answer");
+        assert!(
+            end.is_err(),
+            "the peer read a clean end of a stream that was never flushed: {end:?}"
+        );
     }
 
     /// A route that refuses a frame must not stop the session. The frame goes out on the next

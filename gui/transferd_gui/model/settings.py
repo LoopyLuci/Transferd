@@ -14,8 +14,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, List, Mapping, Tuple
 
+from transferd_gui.debug.policy import MODES, parse_clients, parse_ports
+
 THEMES: Tuple[str, ...] = ("system", "light", "dark")
+#: How the debugging computer reaches a device that is also paired over Wi-Fi or the relay.
+DEBUG_TRANSPORTS: Tuple[str, ...] = ("auto", "usb_only", "wifi_only")
 NODE_NAME_MAX = 64
+#: The longest path or command text the debugging settings accept.
+TEXT_MAX = 512
 
 
 class SettingsError(ValueError):
@@ -44,6 +50,29 @@ class Settings:
     theme: str = "system"
     event_log_size: int = 500
     telemetry_window_s: int = 600
+    # Debugging, as a device (the agent): whether this node answers debug streams, who may ask, and what each may do.
+    debug_enabled: bool = False
+    debug_clients: str = ""
+    debug_info_mode: str = "allow"
+    debug_logcat_mode: str = "ask"
+    debug_shell_mode: str = "ask"
+    debug_forward_mode: str = "ask"
+    debug_forward_ports: str = ""
+    debug_log_command: str = ""
+    debug_shell_timeout_s: float = 60.0
+    debug_shell_output_kib: int = 256
+    debug_streams_per_client: int = 8
+    # Debugging, as a computer (the client): which device it debugs, how it reaches it, and the USB bridge.
+    debug_device_id: str = ""
+    debug_transport: str = "auto"
+    debug_wifi_address: str = ""
+    usb_adb_path: str = "adb"
+    usb_device_port: int = 0
+
+    #: The mailbox a wormhole meets on, as ws:// or wss:// with a port. Empty means wormholes are off until one is set.
+    wormhole_mailbox: str = ""
+    #: How many data streams a wormhole file is spread over.
+    wormhole_streams: int = 4
 
 
 # Each integer or float setting with its inclusive bounds. Bools and strings are checked separately.
@@ -54,7 +83,14 @@ _NUMBER_RANGES = {
     "max_transfer_mib": (1, 512, int),
     "event_log_size": (50, 10000, int),
     "telemetry_window_s": (60, 3600, int),
+    "debug_shell_timeout_s": (1.0, 600.0, float),
+    "debug_shell_output_kib": (16, 16384, int),
+    "debug_streams_per_client": (1, 64, int),
+    "usb_device_port": (0, 65535, int),
+    "wormhole_streams": (1, 8, int),
 }
+
+WORMHOLE_MAILBOX_MAX = 300
 
 
 def parse_host_port(text: str) -> Tuple[str, int]:
@@ -107,9 +143,18 @@ def validate(raw: Mapping[str, Any]) -> Settings:
                 parse_host_port(value)
             except ValueError as exc:
                 problems.append(f"{key}: {exc}")
-    for key in ("allow_incoming", "auto_accept_files"):
+    for key in ("allow_incoming", "auto_accept_files", "debug_enabled"):
         if not isinstance(values.get(key, False), bool):
             problems.append(f"{key} must be on or off")
+    mailbox = values.get("wormhole_mailbox", defaults["wormhole_mailbox"])
+    if not isinstance(mailbox, str):
+        problems.append("wormhole_mailbox must be text")
+    elif mailbox.strip():
+        if not (mailbox.startswith("ws://") or mailbox.startswith("wss://")):
+            problems.append("wormhole_mailbox must start with ws:// or wss://, for example wss://mailbox.example.net:4470")
+        elif any(c.isspace() for c in mailbox) or len(mailbox) > WORMHOLE_MAILBOX_MAX:
+            problems.append(f"wormhole_mailbox has spaces or is longer than {WORMHOLE_MAILBOX_MAX} characters")
+    problems.extend(_debug_problems(values, defaults))
     if values.get("theme", defaults["theme"]) not in THEMES:
         problems.append(f"theme must be one of: {', '.join(THEMES)}")
     for key, (low, high, kind) in _NUMBER_RANGES.items():
@@ -132,6 +177,52 @@ def validate(raw: Mapping[str, Any]) -> Settings:
     for key, (_low, _high, kind) in _NUMBER_RANGES.items():
         merged[key] = kind(merged[key])
     return Settings(**merged)
+
+
+def _debug_problems(values: Mapping[str, Any], defaults: Mapping[str, Any]) -> List[str]:
+    """Problems with the debugging settings. Each text value is checked as the protocol will read it."""
+    problems: List[str] = []
+
+    def text(key: str) -> str:
+        value = values.get(key, defaults[key])
+        return value if isinstance(value, str) else ""
+
+    for key in ("debug_clients", "debug_forward_ports", "debug_device_id", "debug_wifi_address", "debug_log_command", "usb_adb_path", "debug_transport"):
+        if not isinstance(values.get(key, defaults[key]), str):
+            problems.append(f"{key} must be text")
+    if problems:
+        return problems
+    try:
+        parse_clients(text("debug_clients"))
+    except ValueError as exc:
+        problems.append(f"debug_clients: {exc}")
+    try:
+        parse_ports(text("debug_forward_ports"))
+    except ValueError as exc:
+        problems.append(f"debug_forward_ports: {exc}")
+    if text("debug_device_id").strip():
+        try:
+            parse_clients(text("debug_device_id"))
+        except ValueError as exc:
+            problems.append(f"debug_device_id: {exc}")
+    if text("debug_wifi_address").strip():
+        try:
+            parse_host_port(text("debug_wifi_address"))
+        except ValueError as exc:
+            problems.append(f"debug_wifi_address: {exc}")
+    for key in ("debug_log_command", "usb_adb_path"):
+        value = text(key)
+        if len(value) > TEXT_MAX or any(ord(c) < 32 for c in value):
+            problems.append(f"{key} must be at most {TEXT_MAX} characters without control characters")
+    if not text("usb_adb_path").strip():
+        problems.append("usb_adb_path must name the adb program, or be 'adb' to use the one on PATH")
+    if text("debug_transport") not in DEBUG_TRANSPORTS:
+        problems.append(f"debug_transport must be one of: {', '.join(DEBUG_TRANSPORTS)}")
+    modes = {op: values.get(f"debug_{op}_mode", defaults[f"debug_{op}_mode"]) for op in ("info", "logcat", "shell", "forward")}
+    for key, mode in modes.items():
+        if mode not in MODES:
+            problems.append(f"debug_{key}_mode must be one of: {', '.join(MODES)}")
+    return problems
 
 
 def updated(current: Settings, changes: Mapping[str, Any]) -> Settings:

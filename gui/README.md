@@ -12,7 +12,7 @@ Run these from this folder (`H:\Projects\Transferd\gui`). Packages are installed
 
 ```
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install PySide6 cryptography blake3 pytest pyflakes
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 ## Run
@@ -43,9 +43,21 @@ The tests run offscreen (`QT_QPA_PLATFORM=offscreen` is set by `tests\conftest.p
   (`test_node_loopback.py`);
 - the service facade: start, settings saved and refused, failed actions logged and handed back (`test_service.py`);
 - every screen, offscreen, in an empty state and in a populated state where a real peer is connected, a file has moved and
-  an invite has been made (`test_qt_screens.py`).
+  an invite has been made (`test_qt_screens.py`);
+- the debug protocol without a network: the wire format, the device policy, and the agent and client over in-memory
+  channels, with real shell commands, a real loopback forward and a real log process (`test_debug_protocol.py`);
+- debugging between real nodes on 127.0.0.1: the device answers under its policy, consent for shell commands, forwards,
+  the device refusing unlisted computers, and the main claim: a second route joins the session and a log stream survives
+  the USB route being cut, with every line arriving once and in order (`test_debug_node.py`). The adb program is a fake
+  there, and the test says so;
+- the Debug screen and the debugging settings, offscreen, with the real window and service (`test_debug_screen.py`);
+- the wormhole (`test_wormhole_*.py`, described in `docs\WORMHOLE.md`): the codes and keys, the mailbox against the real
+  server, the message checks, the folder archive and its safe unpacking, whole attempts in memory, the overlay transit on
+  loopback, the Wormhole screen with two real windows, and end-to-end runs with a cut connection, a cut route and the relay.
 
-The relay tests need the built relay. Point `TRANSFERD_RELAYD` at it and they run; without it they are skipped:
+The relay tests need the built relay (`test_node_loopback.py` and the relay case in `test_wormhole_e2e.py`). Point
+`TRANSFERD_RELAYD` at it and they run; without it they are skipped. One wormhole relay test is an expected failure for a
+known stall above about 1 MiB (see "Known limits" in `docs\WORMHOLE.md`):
 
 ```
 set TRANSFERD_RELAYD=H:\Projects\Transferd\target\debug\relayd.exe
@@ -64,11 +76,24 @@ Navigation is in the left sidebar, in five sections.
   registration counts, locate a peer); Peers (sessions, disconnect, accept incoming, dial a peer by address or through the
   relay); Invites (make an invite, copy it, check one, connect to its inviter).
 - **Transfer**: Transfer (send a file to a ready peer, open a stream and read its reply, accept or refuse incoming
-  requests, history); Hole punch (locate, with the start button disabled).
+  requests, history); Wormhole (send a file, a folder or a text with a short code, or type a code to receive it; needs a
+  mailbox server set in Settings, and is disabled until one is); Hole punch (locate, with the start button disabled).
 - **Tools**: DNS lookup (disabled); Ghost keys (create the key, load the issuer's key, make the request, finish with the
   answer, reset).
+- **Debug**: Debugging. Choose the device (a connected peer, or paste its node id) and see its state. Connect a route over
+  Wi-Fi or USB; the routes it has are listed with their bytes. Ask the device for its information; start and stop its log,
+  with an optional filter; run a shell command with a time limit and see its output and exit code; forward a port to the
+  device; list every operation running now and stop one. Requests from computers wait here to be accepted or refused.
 - **System**: Events (the bounded log, filtered by level, clearable); Settings (every setting, validated; a value that
-  does not check out is refused with a message and nothing is saved).
+  does not check out is refused with a message and nothing is saved). Settings has two debugging groups: what listed
+  computers may do with this device (on/off, the list of computer ids, allow/ask/deny for each operation, forward ports,
+  the log command, the command limits), and this computer's side (the device to debug, transport, Wi-Fi address, adb
+  program, USB device port). A Wormhole group sets the mailbox server address (empty until one is set) and how many
+  data streams a wormhole file uses (1 to 8).
+
+The debug protocol is specified in `docs\DEBUG_PROTOCOL.md`. It runs over the overlay's services `debug-info`,
+`debug-logcat`, `debug-shell` and `debug-forward`, so it needs nothing from the relay or the library beyond sessions and
+streams.
 
 Empty states say what is missing and what to do. Telemetry that has not been measured shows "no data yet"; no value is
 invented.
@@ -108,3 +133,11 @@ These features are visible and disabled, each with the reason. The reasons are i
   window, so layout, colours and the look of the charts are unchecked.
 - The window was not driven by a person. Button clicks in the tests are programmatic.
 - The relay tests run only when `TRANSFERD_RELAYD` is set to a built `relayd.exe`.
+- Wormhole: a relay transfer above about 1 MiB stalls (a known issue, see `docs\WORMHOLE.md`); the mailbox was tested only
+  on 127.0.0.1; the Wormhole screen was driven by its buttons in tests, not by a person, and its file pickers were not
+  opened.
+- Debugging has not been run with a real phone. No phone, cable or Android device was available. The Android agent
+  (an app that runs the device side on Android) is not built; the device side is this Python app, which runs on any
+  machine with Transferd. The USB route is tested with a fake adb program and with a second loopback connection that
+  stands in for `adb forward`. The real `adb forward` and the real cable were not exercised.
+- The debug log and shell output were checked with commands on this computer, not on a device's real `logcat`.

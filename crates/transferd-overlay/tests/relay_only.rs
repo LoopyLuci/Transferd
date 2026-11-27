@@ -184,15 +184,24 @@ async fn a_relay_that_stops_being_reachable_is_reported_not_hung() {
     stream.write_all(b"alive").await.expect("write");
     assert_eq!(&read_exact(&mut stream, 6).await, b"\xE5alive");
 
-    // When the relay is gone the session stops carrying traffic, and `overlay.peers` says so
-    // instead of the node pretending it is fine.
+    // When the relay is gone its route stops carrying traffic, and `overlay.peers` says so instead
+    // of the node pretending it is fine.
+    //
+    // The check is on the relayed route only. Both nodes are on loopback, so they can also
+    // hole-punch a direct UDP path while the test runs; that route is real, and once it is up it
+    // may carry the traffic. "Every route is down" is therefore not the property under test, and
+    // it was the cause of this test failing intermittently.
     relay.stop();
     eventually("the relayed route to be reported down", || async {
         let peers = a.node.peer_list();
         peers.len() == 1
             && peers[0]["routes"]
                 .as_array()
-                .map(|routes| !routes.is_empty() && routes.iter().all(|r| r["active"] == false))
+                .map(|routes| {
+                    let relayed: Vec<&serde_json::Value> =
+                        routes.iter().filter(|r| r["kind"] == "relay").collect();
+                    !relayed.is_empty() && relayed.iter().all(|r| r["active"] == false)
+                })
                 .unwrap_or(false)
     })
     .await;
