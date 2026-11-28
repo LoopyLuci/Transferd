@@ -12,11 +12,11 @@ ignore = [
     # requires migrating hyper 0.14 -> hyper 1 / tonic 0.12. Tracked migration.
     "RUSTSEC-2026-0258",
 
-    # rsa 0.9.10 — Marvin timing side-channel on RSA decryption. The fix is only
-    # in rsa 0.10 (release candidate); 0.9.x has no backport. rsa is pulled by the
-    # ssh-key/tor stack, which only builds when the `tor-transport` feature is
-    # enabled (never in the default build). No RSA secrets are used by the core
-    # protocol (X25519/ML-KEM only).
+    # rsa 0.9.10 — Marvin timing side-channel on RSA private-key operations. The fix is only
+    # in rsa 0.10, and 0.9.x has no backport. rsa is a direct dependency of transferd-crypto:
+    # the ghost-key issuer performs raw RSA private-key operations on blinded messages
+    # (ghostkey.rs, sign_blinded), so this is a live exposure for an issuer. Accepted only
+    # until rsa 0.10 is adopted.
     "RUSTSEC-2023-0071",
 
     # bincode 1.3.3 / 2.0.1 — unmaintained. bincode is the core wire format used

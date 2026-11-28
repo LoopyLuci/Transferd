@@ -78,7 +78,10 @@ impl Doorbell {
             #[cfg(target_os = "linux")]
             DoorbellInner::EventFd(fd) => {
                 use tokio::io::unix::AsyncFd;
-                if let Ok(afd) = AsyncFd::new(*fd) {
+                // SAFETY: `fd` is the eventfd this `Doorbell` owns; it is closed only in `Drop`. `wait` borrows
+                // `self`, so the `Doorbell` and the fd outlive the `AsyncFd`, which is dropped before `wait` returns.
+                // The `i32` has no drop glue, so the `AsyncFd` only watches the fd and never closes it.
+                if let Ok(afd) = unsafe { AsyncFd::register(*fd) } {
                     let _ = afd.readable().await;
                 }
             }

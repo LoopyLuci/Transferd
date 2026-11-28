@@ -22,7 +22,6 @@ hex = "0.4"
 relayd = { path = "../relayd" }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
-arti-client = { version = "0.22", optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }
@@ -34,5 +33,6 @@ harness = false
 
 [features]
 default = []
-tor-transport = ["arti-client"]
+# TorLane reaches Tor through a SOCKS5 proxy (see lanes/tor_lane.rs), so this feature adds no dependency.
+tor-transport = []
 
