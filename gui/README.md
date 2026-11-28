@@ -52,7 +52,7 @@ The tests run offscreen (`QT_QPA_PLATFORM=offscreen` is set by `tests\conftest.p
   there, and the test says so;
 - the Debug screen and the debugging settings, offscreen, with the real window and service (`test_debug_screen.py`);
 - the wormhole (`test_wormhole_*.py`, described in `docs\WORMHOLE.md`): the codes and keys, the mailbox against the real
-  server, the message checks, the folder archive and its safe unpacking, whole attempts in memory, the overlay transit on
+  server, its limits and refusal codes, TLS and pins, the mailbox list, a hosted mailbox, the message checks, the folder archive and its safe unpacking, whole attempts in memory, the overlay transit on
   loopback, the Wormhole screen with two real windows, and end-to-end runs with a cut connection, a cut route and the relay.
 
 The relay tests need the built relay (`test_node_loopback.py` and the relay case in `test_wormhole_e2e.py`). Point
@@ -77,7 +77,7 @@ Navigation is in the left sidebar, in five sections.
   relay); Invites (make an invite, copy it, check one, connect to its inviter).
 - **Transfer**: Transfer (send a file to a ready peer, open a stream and read its reply, accept or refuse incoming
   requests, history); Wormhole (send a file, a folder or a text with a short code, or type a code to receive it; needs a
-  mailbox server set in Settings, and is disabled until one is); Hole punch (locate, with the start button disabled).
+  mailbox, listed in Settings or hosted on this computer, and is disabled until there is one); Hole punch (locate, with the start button disabled).
 - **Tools**: DNS lookup (disabled); Ghost keys (create the key, load the issuer's key, make the request, finish with the
   answer, reset).
 - **Debug**: Debugging. Choose the device (a connected peer, or paste its node id) and see its state. Connect a route over
@@ -88,8 +88,9 @@ Navigation is in the left sidebar, in five sections.
   does not check out is refused with a message and nothing is saved). Settings has two debugging groups: what listed
   computers may do with this device (on/off, the list of computer ids, allow/ask/deny for each operation, forward ports,
   the log command, the command limits), and this computer's side (the device to debug, transport, Wi-Fi address, adb
-  program, USB device port). A Wormhole group sets the mailbox server address (empty until one is set) and how many
-  data streams a wormhole file uses (1 to 8).
+  program, USB device port). A Wormhole group sets the mailboxes a wormhole meets on (a list, tried in order), whether this
+  computer hosts a mailbox and on which port, whether other computers may reach it, and how many data streams a wormhole
+  file uses (1 to 8).
 
 The debug protocol is specified in `docs\DEBUG_PROTOCOL.md`. It runs over the overlay's services `debug-info`,
 `debug-logcat`, `debug-shell` and `debug-forward`, so it needs nothing from the relay or the library beyond sessions and
@@ -133,8 +134,8 @@ These features are visible and disabled, each with the reason. The reasons are i
   window, so layout, colours and the look of the charts are unchecked.
 - The window was not driven by a person. Button clicks in the tests are programmatic.
 - The relay tests run only when `TRANSFERD_RELAYD` is set to a built `relayd.exe`.
-- Wormhole: a relay transfer above about 1 MiB stalls (a known issue, see `docs\WORMHOLE.md`); the mailbox was tested only
-  on 127.0.0.1; the Wormhole screen was driven by its buttons in tests, not by a person, and its file pickers were not
+- Wormhole: a relay transfer above about 1 MiB stalls (a known issue, see `docs\WORMHOLE.md`); the mailbox, its TLS and its hosting were tested only
+  on 127.0.0.1, with a self-made certificate; the Wormhole screen was driven by its buttons in tests, not by a person, and its file pickers were not
   opened.
 - Debugging has not been run with a real phone. No phone, cable or Android device was available. The Android agent
   (an app that runs the device side on Android) is not built; the device side is this Python app, which runs on any

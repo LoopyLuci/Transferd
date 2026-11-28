@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, List, Mapping, Tuple
 
 from transferd_gui.debug.policy import MODES, parse_clients, parse_ports
+from transferd_gui.wormhole.addresses import parse_list
 
 THEMES: Tuple[str, ...] = ("system", "light", "dark")
 #: How the debugging computer reaches a device that is also paired over Wi-Fi or the relay.
@@ -69,10 +70,18 @@ class Settings:
     usb_adb_path: str = "adb"
     usb_device_port: int = 0
 
-    #: The mailbox a wormhole meets on, as ws:// or wss:// with a port. Empty means wormholes are off until one is set.
+    #: The mailboxes a wormhole may meet on, a comma-separated list tried in order: wss://host:port#fingerprint for another
+    #: computer (the fingerprint pins its certificate), or ws://127.0.0.1:port for this one. Empty means none is set.
     wormhole_mailbox: str = ""
     #: How many data streams a wormhole file is spread over.
     wormhole_streams: int = 4
+    #: Host a mailbox on this computer. Off until it is turned on; nothing listens while it is off.
+    wormhole_host: bool = False
+    #: The port the hosted mailbox listens on.
+    wormhole_host_port: int = 4470
+    #: Whether the hosted mailbox is reachable from other computers: wss:// with its own pinned certificate. Off means only
+    #: this computer, over ws://127.0.0.1.
+    wormhole_host_network: bool = False
 
 
 # Each integer or float setting with its inclusive bounds. Bools and strings are checked separately.
@@ -88,9 +97,11 @@ _NUMBER_RANGES = {
     "debug_streams_per_client": (1, 64, int),
     "usb_device_port": (0, 65535, int),
     "wormhole_streams": (1, 8, int),
+    "wormhole_host_port": (1, 65535, int),
 }
 
-WORMHOLE_MAILBOX_MAX = 300
+#: The longest mailbox list Settings accepts: up to four addresses, each with its pin.
+WORMHOLE_MAILBOX_MAX = 600
 
 
 def parse_host_port(text: str) -> Tuple[str, int]:
@@ -143,17 +154,19 @@ def validate(raw: Mapping[str, Any]) -> Settings:
                 parse_host_port(value)
             except ValueError as exc:
                 problems.append(f"{key}: {exc}")
-    for key in ("allow_incoming", "auto_accept_files", "debug_enabled"):
+    for key in ("allow_incoming", "auto_accept_files", "debug_enabled", "wormhole_host", "wormhole_host_network"):
         if not isinstance(values.get(key, False), bool):
             problems.append(f"{key} must be on or off")
     mailbox = values.get("wormhole_mailbox", defaults["wormhole_mailbox"])
     if not isinstance(mailbox, str):
         problems.append("wormhole_mailbox must be text")
-    elif mailbox.strip():
-        if not (mailbox.startswith("ws://") or mailbox.startswith("wss://")):
-            problems.append("wormhole_mailbox must start with ws:// or wss://, for example wss://mailbox.example.net:4470")
-        elif any(c.isspace() for c in mailbox) or len(mailbox) > WORMHOLE_MAILBOX_MAX:
-            problems.append(f"wormhole_mailbox has spaces or is longer than {WORMHOLE_MAILBOX_MAX} characters")
+    elif len(mailbox) > WORMHOLE_MAILBOX_MAX:
+        problems.append(f"wormhole_mailbox is longer than {WORMHOLE_MAILBOX_MAX} characters")
+    else:
+        try:
+            parse_list(mailbox)
+        except ValueError as exc:
+            problems.append(f"wormhole_mailbox: {exc}")
     problems.extend(_debug_problems(values, defaults))
     if values.get("theme", defaults["theme"]) not in THEMES:
         problems.append(f"theme must be one of: {', '.join(THEMES)}")

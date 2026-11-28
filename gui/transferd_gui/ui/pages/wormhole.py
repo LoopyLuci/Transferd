@@ -22,10 +22,12 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from transferd_gui.backend.wormhole import WormholeService, mailbox_problem
+from transferd_gui.backend.wormhole import WormholeService
+from transferd_gui.model.eventlog import LogEntry
 from transferd_gui.model.settings import Settings
 from transferd_gui.ui.pages.base import Page
 from transferd_gui.ui.widgets import ActionRow, Card, Notice
+from transferd_gui.wormhole.addresses import display_fingerprint
 from transferd_gui.wormhole.session import ReceiveResult, Receiver, SendResult, Sender
 
 
@@ -59,6 +61,27 @@ class WormholePage(Page):
 
         self.setup_notice = Notice()
         self.content.addWidget(self.setup_notice)
+
+        mailbox = Card("Mailbox")
+        self.meeting_notice = Notice("", "muted")
+        self.host_notice = Notice("", "muted")
+        self.share_edit = QLineEdit()
+        self.share_edit.setReadOnly(True)
+        self.share_edit.setToolTip("Paste this into the other computer's mailbox list in Settings (Wormhole).")
+        self.copy_share_button = QPushButton("Copy share line")
+        self.copy_share_button.clicked.connect(self._copy_share)
+        self.share_hint = Notice(
+            "Other computers add this line to their mailbox list in Settings (Wormhole). It carries this computer's "
+            "fingerprint, so they reach this mailbox and no other.",
+            "muted",
+        )
+        self._share_widgets = (self.share_edit, self.copy_share_button, self.share_hint)
+        mailbox.body.addWidget(self.meeting_notice)
+        mailbox.body.addWidget(self.host_notice)
+        mailbox.body.addWidget(self.share_edit)
+        mailbox.body.addWidget(ActionRow(self.copy_share_button))
+        mailbox.body.addWidget(self.share_hint)
+        self.content.addWidget(mailbox)
 
         send = Card("Send")
         self.send_file_button = QPushButton("Send a file")
@@ -124,13 +147,21 @@ class WormholePage(Page):
     def on_settings(self, settings: Settings) -> None:
         self._refresh_availability(settings)
 
+    def on_show(self) -> None:
+        self._refresh_availability(self.service.settings)
+
+    def on_log(self, entry: LogEntry) -> None:
+        # The hosted mailbox writes to the log when it starts, stops or fails, so its state is read again then.
+        if entry.source == "mailbox":
+            self._refresh_availability(self.service.settings)
+
     def _refresh_availability(self, settings: Settings) -> None:
-        reason = mailbox_problem(settings)
+        reason = self.wormhole.problem()
         enabled = not reason
         if reason:
             self.setup_notice.set_text(reason, "error")
         else:
-            self.setup_notice.set_text(f"The mailbox is {settings.wormhole_mailbox.strip()}.", "muted")
+            self.setup_notice.set_text(f"The mailbox is {self.wormhole.mailbox()}.", "muted")
         for widget in (
             self.send_file_button,
             self.send_folder_button,
@@ -140,6 +171,43 @@ class WormholePage(Page):
             self.code_input,
         ):
             widget.setEnabled(enabled)
+        self._refresh_mailbox_card(settings)
+
+    def _refresh_mailbox_card(self, settings: Settings) -> None:
+        hosting = self.service.mailbox_host
+        status = hosting.status()
+        listed = settings.wormhole_mailbox.strip()
+        here = hosting.address_here()
+        if listed:
+            meeting, tone = f"Wormholes meet on the mailbox list in Settings: {listed}", "muted"
+        elif here:
+            meeting, tone = f"Wormholes on this computer meet on its own mailbox: {here}", "muted"
+        else:
+            meeting, tone = "No mailbox is set, so wormholes are off. Add one in Settings, or host one on this computer.", "error"
+        self.meeting_notice.set_text(meeting, tone)
+        if status.error:
+            self.host_notice.set_text(status.error, "error")
+        elif status.running and status.network:
+            self.host_notice.set_text(
+                f"Hosting a mailbox on port {status.port}, reachable from other computers. "
+                f"Its fingerprint: {display_fingerprint(status.fingerprint)}",
+                "muted",
+            )
+        elif status.running:
+            self.host_notice.set_text(f"Hosting a mailbox on port {status.port}, for this computer only.", "muted")
+        elif status.enabled:
+            self.host_notice.set_text("Starting the hosted mailbox.", "muted")
+        else:
+            self.host_notice.set_text("This computer is not hosting a mailbox. Turn hosting on in Settings (Wormhole).", "muted")
+        share = hosting.share_line()
+        self.share_edit.setText(share)
+        for widget in self._share_widgets:
+            widget.setVisible(bool(share))
+
+    def _copy_share(self) -> None:
+        share = self.service.mailbox_host.share_line()
+        if share:
+            QGuiApplication.clipboard().setText(share)
 
     def _set_offer_buttons(self, on: bool) -> None:
         self.accept_button.setEnabled(on)

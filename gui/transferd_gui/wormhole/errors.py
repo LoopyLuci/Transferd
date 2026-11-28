@@ -20,7 +20,15 @@ class OpenError(WormholeError):
 
 
 class MailboxError(WormholeError):
-    """The mailbox refused a request, or could not be reached, or closed the connection."""
+    """The mailbox refused a request, or could not be reached, or closed the connection.
+
+    `code` is the mailbox's own code for a refusal (for example "rate_limited" or "busy"), or "" when there is none, and
+    `retry_after` is how many seconds the mailbox asked the caller to wait before trying again, or 0."""
+
+    def __init__(self, message: str = "", *, code: str = "", retry_after: float = 0.0) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retry_after = retry_after
 
 
 class ProtocolError(WormholeError):

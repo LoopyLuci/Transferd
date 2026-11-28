@@ -167,15 +167,38 @@ class SettingsPage(Page):
         wormhole = Card("Wormhole: send a file or text with a code")
         wormhole_form = QFormLayout()
         self.wormhole_mailbox = QLineEdit()
-        self.wormhole_mailbox.setPlaceholderText("wss://mailbox.example.net:4470")
-        self.wormhole_mailbox.setToolTip("Empty keeps wormholes off. The mailbox sees nameplates and timing, never a code, key or file.")
+        self.wormhole_mailbox.setPlaceholderText("wss://mailbox.example.net:4470#fingerprint")
+        self.wormhole_mailbox.setToolTip(
+            "The mailboxes a wormhole meets on, tried in order and separated by commas. wss:// reaches another computer; "
+            "the #fingerprint after it pins that computer's certificate. ws://127.0.0.1 is this computer only. "
+            "Empty uses this computer's own mailbox, when it is hosting one."
+        )
+        self.wormhole_host = QCheckBox("Host a mailbox on this computer")
+        self.wormhole_host.setToolTip("Nothing listens until this is on. The mailbox sees nameplates and timing, never a code, key or file.")
+        self.wormhole_host_port = QSpinBox()
+        self.wormhole_host_port.setRange(1, 65535)
+        self.wormhole_host_port.setToolTip("The port the hosted mailbox listens on.")
+        self.wormhole_host_network = QCheckBox("Let other computers reach it, encrypted and pinned to this computer")
+        self.wormhole_host_network.setToolTip(
+            "Off: only this computer can use the hosted mailbox. On: it listens on the network, over wss:// with its own "
+            "certificate. Other computers pin that certificate with the share line from the Wormhole screen."
+        )
         self.wormhole_streams = QSpinBox()
         self.wormhole_streams.setRange(1, 8)
         self.wormhole_streams.setToolTip("How many parallel streams a file is spread over on the overlay.")
-        wormhole_form.addRow("Mailbox server", self.wormhole_mailbox)
+        wormhole_form.addRow("Mailboxes", self.wormhole_mailbox)
+        wormhole_form.addRow("", self.wormhole_host)
+        wormhole_form.addRow("Hosted mailbox port", self.wormhole_host_port)
+        wormhole_form.addRow("", self.wormhole_host_network)
         wormhole_form.addRow("Streams per file", self.wormhole_streams)
         wormhole.body.addLayout(wormhole_form)
-        wormhole.body.addWidget(Notice("The relay and the download folder above are used for wormholes too.", "muted"))
+        wormhole.body.addWidget(
+            Notice(
+                "With no mailbox listed, wormholes on this computer meet on its own hosted mailbox. The relay and the "
+                "download folder above are used for wormholes too.",
+                "muted",
+            )
+        )
         self.content.addWidget(wormhole)
 
         unavailable = Card("Options this build cannot change")
@@ -236,6 +259,9 @@ class SettingsPage(Page):
         self.usb_adb.setText(settings.usb_adb_path)
         self.usb_port.setValue(settings.usb_device_port)
         self.wormhole_mailbox.setText(settings.wormhole_mailbox)
+        self.wormhole_host.setChecked(settings.wormhole_host)
+        self.wormhole_host_port.setValue(settings.wormhole_host_port)
+        self.wormhole_host_network.setChecked(settings.wormhole_host_network)
         self.wormhole_streams.setValue(settings.wormhole_streams)
 
     @staticmethod
@@ -275,6 +301,9 @@ class SettingsPage(Page):
             "usb_adb_path": self.usb_adb.text().strip(),
             "usb_device_port": self.usb_port.value(),
             "wormhole_mailbox": self.wormhole_mailbox.text().strip(),
+            "wormhole_host": self.wormhole_host.isChecked(),
+            "wormhole_host_port": self.wormhole_host_port.value(),
+            "wormhole_host_network": self.wormhole_host_network.isChecked(),
             "wormhole_streams": self.wormhole_streams.value(),
         }
 

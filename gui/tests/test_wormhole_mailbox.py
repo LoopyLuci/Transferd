@@ -15,14 +15,16 @@ from transferd_gui.wormhole.mailbox import MailboxClient
 from transferd_gui.wormhole.server import APP_ID, MailboxServer
 
 
-def run(scenario, timeout: float = 20.0, **server_kwargs):
-    """Start a server, run `scenario(server, url)`, stop the server. Returns the scenario's result."""
+def run(scenario, timeout: float = 20.0, *, tls=None, **server_kwargs):
+    """Start a server, run `scenario(server, url)`, stop the server. Returns the scenario's result. With `tls`, the server
+    speaks wss:// with that SSL context, and `url` is a wss:// address."""
 
     async def main():
         server = MailboxServer(**server_kwargs)
-        port = await server.start("127.0.0.1", 0)
+        port = await server.start("127.0.0.1", 0, tls=tls)
+        scheme = "wss" if tls is not None else "ws"
         try:
-            return await asyncio.wait_for(scenario(server, f"ws://127.0.0.1:{port}"), timeout)
+            return await asyncio.wait_for(scenario(server, f"{scheme}://127.0.0.1:{port}"), timeout)
         finally:
             await server.close()
 
