@@ -21,8 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Deque, Dict, List, Optional, Set
 
-from transferd.errors import Closed, Denied, InviteError, NoSuchService, RateLimited, TransferdError, Unreachable
-from transferd.frames import ServiceInfo
+from transferd.errors import InviteError, TransferdError
 from transferd.handshake import handshake_initiator, handshake_responder
 from transferd.identity import HybridIdentity, key_fingerprint, relay_token_for
 from transferd.invite import MadeInvite, accept_invite, make_invite
@@ -31,14 +30,16 @@ from transferd.overlay import OverlaySession, SessionSetup, spawn
 from transferd.punch import addr_text
 from transferd.relay_hub import REREGISTER_EVERY, RelayHub
 
+from transferd_gui.backend.debugnode import DebugNodeMixin
+from transferd_gui.backend.errors import NodeError, describe
 from transferd_gui.backend.files import (
     CHUNK,
     FILE_SERVICE,
-    STREAM_SERVICE,
     HeaderReader,
     encode_header,
     unique_path,
 )
+from transferd_gui.debug import wire
 from transferd_gui.backend.observe import count_probe_answers, count_received, count_sent, observe_async
 from transferd_gui.model.settings import NODE_NAME_MAX, Settings, parse_host_port
 from transferd_gui.model.snapshot import (
@@ -70,31 +71,6 @@ SOURCE_NODE, SOURCE_RELAY, SOURCE_PEER, SOURCE_TRANSFER = "node", "relay", "peer
 
 Log = Callable[[str, str, str], None]
 Publish = Callable[[NodeSnapshot], None]
-
-
-class NodeError(Exception):
-    """A failure with a message a user can act on. The service logs it and the views show it."""
-
-
-def describe(exc: BaseException) -> str:
-    """A short, readable reason for an exception."""
-    if isinstance(exc, Unreachable):
-        return "the peer did not answer the open request in time (it must accept within 15 s)"
-    if isinstance(exc, Denied):
-        return "the peer refused the stream"
-    if isinstance(exc, NoSuchService):
-        return "the peer does not offer that service"
-    if isinstance(exc, RateLimited):
-        return "the peer is rate limiting that service"
-    if isinstance(exc, Closed):
-        return "the session was closed"
-    if isinstance(exc, asyncio.TimeoutError):
-        return "timed out"
-    if isinstance(exc, ConnectionRefusedError):
-        return "connection refused"
-    if isinstance(exc, OSError):
-        return exc.strerror or str(exc)
-    return str(exc) or type(exc).__name__
 
 
 @dataclass
@@ -130,7 +106,7 @@ class _RelayRecord:
     failures: int = 0
 
 
-class Node:
+class Node(DebugNodeMixin):
     """One Transferd node in the GUI: its identity, its listener, its relay registration and its peers."""
 
     def __init__(self, settings: Settings, log: Log, publish: Optional[Publish] = None) -> None:
@@ -153,6 +129,7 @@ class Node:
         self._transfers: Deque[TransferRecord] = deque(maxlen=HISTORY)
         self._locate: Optional[LocateResult] = None
         self._tasks: Set[asyncio.Task] = set()
+        self._debug_setup()
 
     # ----- identity -----------------------------------------------------------------------------
 
@@ -194,6 +171,7 @@ class Node:
             self._identity = self._load_identity()
         self._log("info", SOURCE_NODE, f"node {self.identity.node_id[:12]} started as '{self.identity.name}'")
         self._spawn(self._tick())
+        self._debug_start()
         if self._settings.allow_incoming:
             await self._open_listener()
         if self._settings.relay_address:
@@ -204,6 +182,7 @@ class Node:
 
     async def stop(self) -> None:
         """Close relay registration, sessions, listener and the ticker. Every waiting call is released."""
+        await self._debug_stop()
         await self.disconnect_relay()
         for peer in list(self._peers.values()):
             await peer.session.shutdown()
@@ -217,6 +196,10 @@ class Node:
         """Take new settings. Changing whether incoming is allowed opens or closes the listener, and changing the relay
         address drops the current registration (the user connects again)."""
         old, self._settings = self._settings, settings
+        self._debug_settings_changed(old, settings)
+        if self._identity is not None and old.debug_enabled != settings.debug_enabled:
+            await self._debug_readvertise()
+            self._log("info", SOURCE_NODE, "debugging is " + ("on: this node answers debug requests from the computers on its list" if settings.debug_enabled else "off"))
         if self._identity is not None and settings.node_name != old.node_name:
             self._log("info", SOURCE_NODE, "the node name takes effect after a restart")
         if settings.relay_address != old.relay_address and self._hub is not None:
@@ -277,12 +260,14 @@ class Node:
             self._log("warning", SOURCE_PEER, f"refused a connection from {where_text}: {describe(exc)}")
             writer.close()
             return
-        if result.peer_node_id in self._peers:
-            self._log("warning", SOURCE_PEER, f"{where_text} is already connected as {result.peer_node_id[:12]}; closed the new connection")
-            writer.close()
-            return
         link = TcpLink(reader, writer, result.keys, kind=RouteKind.DIRECT, describe=f"tcp://{where_text}")
         link.start()
+        existing = self._peers.get(result.peer_node_id)
+        if existing is not None:
+            # A second route to a peer we already have a session with (for example the same device over USB and Wi-Fi):
+            # it becomes one more route of that session, not a refused connection.
+            await self._add_route(existing, link)
+            return
         self._start_peer(result.peer_node_id, [link], via="direct", relay_token=None)
 
     # ----- relay --------------------------------------------------------------------------------
@@ -492,8 +477,7 @@ class Node:
         for link in links:
             self._observe_link(link)
         events: asyncio.Queue = asyncio.Queue()
-        services = [ServiceInfo(name=FILE_SERVICE, description="files"), ServiceInfo(name=STREAM_SERVICE, description="streams")]
-        setup = SessionSetup(peer_node_id=peer_id, peer_name="", identity=self.identity, services=services)
+        setup = SessionSetup(peer_node_id=peer_id, peer_name="", identity=self.identity, services=self._advertised_services())
         session = spawn(setup, links, events)
         peer = _Peer(
             node_id=peer_id,
@@ -549,6 +533,9 @@ class Node:
         request_id = self._next_request
         self._next_request += 1
         self._pending[request_id] = _Pending(request_id, peer.node_id, peer.session, stream, service, time.time())
+        if wire.op_of(service) is not None:
+            self._debug_incoming(request_id)
+            return
         if service == FILE_SERVICE and self._settings.auto_accept_files:
             self._log("info", SOURCE_PEER, f"{peer.node_id[:12]} sends a file; accepting it (auto-accept is on)")
             self._spawn(self.accept_request(request_id))
@@ -591,6 +578,9 @@ class Node:
         if pending is None:
             raise NodeError("that request is no longer waiting")
         await pending.session.authorize(pending.stream, pending.service, True)
+        if wire.op_of(pending.service) is not None:
+            self._spawn(self._serve_debug(pending))
+            return
         if pending.service == FILE_SERVICE:
             self._spawn(self._receive_file(pending))
         else:
@@ -601,6 +591,9 @@ class Node:
         if pending is None:
             raise NodeError("that request is no longer waiting")
         await pending.session.authorize(pending.stream, pending.service, False, "refused by the user")
+        if wire.op_of(pending.service) is not None:
+            self._debug_audit("info", f"refused debug {wire.op_of(pending.service)} from {pending.peer_id[:12]} (by the user)")
+            return
         self._log("info", SOURCE_TRANSFER, f"refused '{pending.service}' from {pending.peer_id[:12]}")
 
     def _limit_bytes(self) -> int:
@@ -772,6 +765,7 @@ class Node:
             ),
             transfers=tuple(self._transfers),
             locate=self._locate,
+            debug=self.debug_snapshot(),
         )
 
     def _peer_name(self, peer_id: str) -> str:
@@ -845,6 +839,7 @@ class Node:
             kind=link.kind.value,
             up=link.is_up(),
             closed=link.is_closed(),
+            label=link.describe,
             rtt_ms=metrics.rtt_ms if measured else None,
             srtt_ms=report.srtt_ms if report is not None and report.srtt_ms > 0.0 else None,
             loss=metrics.loss if measured else None,

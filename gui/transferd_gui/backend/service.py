@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine, Mapping, Optional, Tuple
 
 from transferd_gui.backend.ghost import GhostService
+from transferd_gui.backend.mailbox_host import MailboxHost
 from transferd_gui.backend.node import Node, NodeError, describe
 from transferd_gui.backend.worker import BackendWorker
 from transferd_gui.model.eventlog import EventLogStore, LogEntry
@@ -22,6 +23,14 @@ from transferd_gui.model.snapshot import NodeSnapshot
 OnSnapshot = Callable[[NodeSnapshot], None]
 OnLog = Callable[[LogEntry], None]
 OnDone = Callable[[bool, Any], None]
+
+
+def _hosting_changed(old: Settings, new: Settings) -> bool:
+    return (old.wormhole_host, old.wormhole_host_port, old.wormhole_host_network) != (
+        new.wormhole_host,
+        new.wormhole_host_port,
+        new.wormhole_host_network,
+    )
 
 
 class TransferdService:
@@ -44,6 +53,7 @@ class TransferdService:
         self._lock = threading.Lock()
         self._worker = BackendWorker()
         self._node = Node(self._settings, self._log, self._publish)
+        self._mailbox_host = MailboxHost(Path(self._settings.data_dir) / "wormhole")
 
     # ----- settings -----------------------------------------------------------------------------
 
@@ -79,20 +89,44 @@ class TransferdService:
             self._log("info", "settings", "the data directory takes effect after a restart")
         if self._worker.running:
             self.run(self._node.apply_settings(new), "apply settings")
+            if _hosting_changed(old, new):
+                self.run(self._apply_hosting(new), "host a mailbox")
         return new
 
     def ghost(self) -> GhostService:
         return GhostService(Path(self._settings.data_dir))
+
+    @property
+    def mailbox_host(self) -> MailboxHost:
+        """This computer's hosted mailbox. Its status can be read from any thread."""
+        return self._mailbox_host
+
+    async def _apply_hosting(self, settings: Settings) -> None:
+        await self._mailbox_host.apply(settings)
+        status = self._mailbox_host.status()
+        if status.error:
+            self._log("error", "mailbox", status.error)
+        elif status.running:
+            where = "on the network, with a pinned certificate" if status.network else "on this computer only"
+            self._log("info", "mailbox", f"hosting a mailbox on port {status.port}, {where}")
+        elif not settings.wormhole_host:
+            self._log("info", "mailbox", "stopped hosting the mailbox")
 
     # ----- lifecycle ----------------------------------------------------------------------------
 
     def start(self) -> None:
         self._worker.start()
         self.run(self._node.start(), "start the node")
+        if self._settings.wormhole_host:
+            self.run(self._apply_hosting(self._settings), "host a mailbox")
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._worker.running:
             return
+        try:
+            self._worker.submit(self._mailbox_host.stop()).result(timeout=timeout)
+        except Exception as exc:  # the hosted mailbox must not keep the app from closing
+            self._log("warning", "mailbox", f"stopping the hosted mailbox was not clean: {describe(exc)}")
         try:
             self._worker.submit(self._node.stop()).result(timeout=timeout)
         except Exception as exc:  # stopping must finish even when a session will not close cleanly

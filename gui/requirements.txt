@@ -1,0 +1,13 @@
+# Everything the desktop app and its tests import, pinned to the versions the tests were run with.
+# Install into the app's own venv only:
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
+PySide6==6.12.0
+cryptography==50.0.2
+blake3==1.0.11
+# Wormhole: the SPAKE2 password-authenticated key exchange and the mailbox WebSocket client and server.
+spake2==0.9
+websockets==17.4
+# Tests and checks.
+pytest==9.2.0
+pyflakes==4.1.0

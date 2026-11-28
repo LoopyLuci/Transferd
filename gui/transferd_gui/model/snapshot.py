@@ -26,6 +26,8 @@ class RouteSnapshot:
     kind: str
     up: bool
     closed: bool
+    #: What the route is: its address, or `usb:<serial>` for a route carried over the cable.
+    label: str = ""
     #: Library measurements. None until the route has answered a probe. An RTT of 0.0 is real: it is under the
     #: platform's clock resolution.
     rtt_ms: Optional[float] = None
@@ -122,6 +124,41 @@ class LocateResult:
 
 
 @dataclass(frozen=True)
+class UsbDeviceSnapshot:
+    """A device adb reported. `state` is adb's word: `device` (ready), `unauthorized`, `offline` and so on."""
+
+    serial: str
+    state: str
+    model: str = ""
+
+
+@dataclass(frozen=True)
+class DebugStreamSnapshot:
+    """A debug operation this node is running as a debugger: a log stream, a shell command or a port forward."""
+
+    handle: int
+    peer_id: str
+    kind: str
+    detail: str
+    started_at: float
+    state: str
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class DebugSnapshot:
+    """Debugging on this node, in both roles, and what the USB bridge can see."""
+
+    agent_enabled: bool = False
+    clients: Tuple[str, ...] = ()
+    device_id: str = ""
+    usb_state: str = "not checked"
+    usb_detail: str = ""
+    usb_devices: Tuple[UsbDeviceSnapshot, ...] = ()
+    streams: Tuple[DebugStreamSnapshot, ...] = ()
+
+
+@dataclass(frozen=True)
 class NodeSnapshot:
     taken_at: float
     identity: IdentitySnapshot
@@ -131,6 +168,7 @@ class NodeSnapshot:
     requests: Tuple[IncomingRequest, ...] = ()
     transfers: Tuple[TransferRecord, ...] = ()
     locate: Optional[LocateResult] = None
+    debug: DebugSnapshot = DebugSnapshot()
 
     @property
     def all_routes(self) -> Tuple[RouteSnapshot, ...]:
@@ -142,3 +180,6 @@ class NodeSnapshot:
 
     def ready_peers(self) -> Tuple[SessionSnapshot, ...]:
         return tuple(session for session in self.sessions if session.state == "ready")
+
+    def session_for(self, peer_id: str) -> Optional[SessionSnapshot]:
+        return next((session for session in self.sessions if session.peer_id == peer_id), None)

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -18,9 +19,13 @@ from PySide6.QtWidgets import (
 )
 
 from transferd_gui.backend import capabilities
-from transferd_gui.model.settings import THEMES, Settings, SettingsError
+from transferd_gui.debug.policy import MODES
+from transferd_gui.model.settings import DEBUG_TRANSPORTS, THEMES, Settings, SettingsError
 from transferd_gui.ui.pages.base import Page
+from transferd_gui.ui.pages.debug import TRANSPORT_LABELS
 from transferd_gui.ui.widgets import ActionRow, Banner, Card, Notice
+
+MODE_LABELS = {"allow": "Allow", "ask": "Ask the device's user", "deny": "Deny"}
 
 
 class SettingsPage(Page):
@@ -93,6 +98,109 @@ class SettingsPage(Page):
         timing.body.addLayout(form2)
         self.content.addWidget(timing)
 
+        debugging = Card("Debugging: what a listed computer may do with this device")
+        debugging.body.addWidget(QLabel(
+            "Off until you turn it on. Only the computers listed here can debug this device. For each kind of operation, "
+            "allow it, ask this device's user each time, or deny it."
+        ))
+        device_form = QFormLayout()
+        self.debug_enabled = QCheckBox("Let listed computers debug this device")
+        self.debug_clients = QLineEdit()
+        self.debug_clients.setPlaceholderText("computer node ids, separated by commas (64 hex characters each)")
+        self.mode_boxes: Dict[str, QComboBox] = {}
+        for op, label in (
+            ("info", "Device information"),
+            ("logcat", "Log"),
+            ("shell", "Commands"),
+            ("forward", "Port forwarding"),
+        ):
+            box = QComboBox()
+            for mode in MODES:
+                box.addItem(MODE_LABELS[mode], mode)
+            self.mode_boxes[op] = box
+            device_form.addRow(label, box)
+        self.debug_forward_ports = QLineEdit()
+        self.debug_forward_ports.setPlaceholderText("ports computers may forward to, e.g. 8080, 5555")
+        self.debug_log_command = QLineEdit()
+        self.debug_log_command.setPlaceholderText("command that prints the log, e.g. logcat -v time")
+        self.debug_shell_timeout = QDoubleSpinBox()
+        self.debug_shell_timeout.setRange(1.0, 600.0)
+        self.debug_shell_timeout.setSuffix(" s")
+        self.debug_shell_output = QSpinBox()
+        self.debug_shell_output.setRange(16, 16384)
+        self.debug_shell_output.setSuffix(" KiB")
+        self.debug_streams = QSpinBox()
+        self.debug_streams.setRange(1, 64)
+        device_form.addRow("", self.debug_enabled)
+        device_form.addRow("Listed computers", self.debug_clients)
+        device_form.addRow("Forward ports", self.debug_forward_ports)
+        device_form.addRow("Log command", self.debug_log_command)
+        device_form.addRow("Command time limit", self.debug_shell_timeout)
+        device_form.addRow("Command output kept", self.debug_shell_output)
+        device_form.addRow("Operations open per computer", self.debug_streams)
+        debugging.body.addLayout(device_form)
+        self.content.addWidget(debugging)
+
+        this_computer = Card("Debugging from this computer")
+        this_form = QFormLayout()
+        self.debug_device_id = QLineEdit()
+        self.debug_device_id.setPlaceholderText("node id of the device to debug (64 hex characters)")
+        self.debug_transport = QComboBox()
+        for transport in DEBUG_TRANSPORTS:
+            self.debug_transport.addItem(TRANSPORT_LABELS[transport], transport)
+        self.debug_wifi = QLineEdit()
+        self.debug_wifi.setPlaceholderText("device address for Wi-Fi, host:port")
+        self.usb_adb = QLineEdit()
+        self.usb_adb.setPlaceholderText("adb")
+        self.usb_port = QSpinBox()
+        self.usb_port.setRange(0, 65535)
+        self.usb_port.setSpecialValueText("not set")
+        self.usb_port.setToolTip("The port the device's Transferd node listens on, as the phone sees it.")
+        this_form.addRow("Device", self.debug_device_id)
+        this_form.addRow("Transport", self.debug_transport)
+        this_form.addRow("Wi-Fi address", self.debug_wifi)
+        this_form.addRow("adb program", self.usb_adb)
+        this_form.addRow("Device port (USB)", self.usb_port)
+        this_computer.body.addLayout(this_form)
+        self.content.addWidget(this_computer)
+
+        wormhole = Card("Wormhole: send a file or text with a code")
+        wormhole_form = QFormLayout()
+        self.wormhole_mailbox = QLineEdit()
+        self.wormhole_mailbox.setPlaceholderText("wss://mailbox.example.net:4470#fingerprint")
+        self.wormhole_mailbox.setToolTip(
+            "The mailboxes a wormhole meets on, tried in order and separated by commas. wss:// reaches another computer; "
+            "the #fingerprint after it pins that computer's certificate. ws://127.0.0.1 is this computer only. "
+            "Empty uses this computer's own mailbox, when it is hosting one."
+        )
+        self.wormhole_host = QCheckBox("Host a mailbox on this computer")
+        self.wormhole_host.setToolTip("Nothing listens until this is on. The mailbox sees nameplates and timing, never a code, key or file.")
+        self.wormhole_host_port = QSpinBox()
+        self.wormhole_host_port.setRange(1, 65535)
+        self.wormhole_host_port.setToolTip("The port the hosted mailbox listens on.")
+        self.wormhole_host_network = QCheckBox("Let other computers reach it, encrypted and pinned to this computer")
+        self.wormhole_host_network.setToolTip(
+            "Off: only this computer can use the hosted mailbox. On: it listens on the network, over wss:// with its own "
+            "certificate. Other computers pin that certificate with the share line from the Wormhole screen."
+        )
+        self.wormhole_streams = QSpinBox()
+        self.wormhole_streams.setRange(1, 8)
+        self.wormhole_streams.setToolTip("How many parallel streams a file is spread over on the overlay.")
+        wormhole_form.addRow("Mailboxes", self.wormhole_mailbox)
+        wormhole_form.addRow("", self.wormhole_host)
+        wormhole_form.addRow("Hosted mailbox port", self.wormhole_host_port)
+        wormhole_form.addRow("", self.wormhole_host_network)
+        wormhole_form.addRow("Streams per file", self.wormhole_streams)
+        wormhole.body.addLayout(wormhole_form)
+        wormhole.body.addWidget(
+            Notice(
+                "With no mailbox listed, wormholes on this computer meet on its own hosted mailbox. The relay and the "
+                "download folder above are used for wormholes too.",
+                "muted",
+            )
+        )
+        self.content.addWidget(wormhole)
+
         unavailable = Card("Options this build cannot change")
         unavailable.body.addWidget(Banner(capabilities.reason(capabilities.CUSTOM_RELAY_TOKEN)))
         unavailable.body.addWidget(Banner(capabilities.reason(capabilities.RELAY_UDP_PORT)))
@@ -136,6 +244,29 @@ class SettingsPage(Page):
         self.theme.setCurrentText(settings.theme)
         self.log_size.setValue(settings.event_log_size)
         self.window_s.setValue(settings.telemetry_window_s)
+        self.debug_enabled.setChecked(settings.debug_enabled)
+        self.debug_clients.setText(settings.debug_clients)
+        for op, box in self.mode_boxes.items():
+            self._set_combo(box, getattr(settings, f"debug_{op}_mode"))
+        self.debug_forward_ports.setText(settings.debug_forward_ports)
+        self.debug_log_command.setText(settings.debug_log_command)
+        self.debug_shell_timeout.setValue(settings.debug_shell_timeout_s)
+        self.debug_shell_output.setValue(settings.debug_shell_output_kib)
+        self.debug_streams.setValue(settings.debug_streams_per_client)
+        self.debug_device_id.setText(settings.debug_device_id)
+        self._set_combo(self.debug_transport, settings.debug_transport)
+        self.debug_wifi.setText(settings.debug_wifi_address)
+        self.usb_adb.setText(settings.usb_adb_path)
+        self.usb_port.setValue(settings.usb_device_port)
+        self.wormhole_mailbox.setText(settings.wormhole_mailbox)
+        self.wormhole_host.setChecked(settings.wormhole_host)
+        self.wormhole_host_port.setValue(settings.wormhole_host_port)
+        self.wormhole_host_network.setChecked(settings.wormhole_host_network)
+        self.wormhole_streams.setValue(settings.wormhole_streams)
+
+    @staticmethod
+    def _set_combo(box: QComboBox, value: str) -> None:
+        box.setCurrentIndex(max(box.findData(value), 0))
 
     def _collect(self) -> Dict[str, Any]:
         return {
@@ -153,6 +284,27 @@ class SettingsPage(Page):
             "theme": self.theme.currentText(),
             "event_log_size": self.log_size.value(),
             "telemetry_window_s": self.window_s.value(),
+            "debug_enabled": self.debug_enabled.isChecked(),
+            "debug_clients": self.debug_clients.text().strip(),
+            "debug_info_mode": self.mode_boxes["info"].currentData(),
+            "debug_logcat_mode": self.mode_boxes["logcat"].currentData(),
+            "debug_shell_mode": self.mode_boxes["shell"].currentData(),
+            "debug_forward_mode": self.mode_boxes["forward"].currentData(),
+            "debug_forward_ports": self.debug_forward_ports.text().strip(),
+            "debug_log_command": self.debug_log_command.text().strip(),
+            "debug_shell_timeout_s": float(self.debug_shell_timeout.value()),
+            "debug_shell_output_kib": self.debug_shell_output.value(),
+            "debug_streams_per_client": self.debug_streams.value(),
+            "debug_device_id": self.debug_device_id.text().strip().lower(),
+            "debug_transport": self.debug_transport.currentData(),
+            "debug_wifi_address": self.debug_wifi.text().strip(),
+            "usb_adb_path": self.usb_adb.text().strip(),
+            "usb_device_port": self.usb_port.value(),
+            "wormhole_mailbox": self.wormhole_mailbox.text().strip(),
+            "wormhole_host": self.wormhole_host.isChecked(),
+            "wormhole_host_port": self.wormhole_host_port.value(),
+            "wormhole_host_network": self.wormhole_host_network.isChecked(),
+            "wormhole_streams": self.wormhole_streams.value(),
         }
 
     def _save(self) -> None:
